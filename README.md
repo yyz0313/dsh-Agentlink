@@ -1,162 +1,38 @@
-﻿# dsh-Agentlink
+# dsh-Agentlink (ZCode Adaptation)
 
 ![dsh-Agentlink cover](assets/dsh-agentlink-cover.webp)
 
 [![CI](https://github.com/hootandy321/dsh-Agentlink/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hootandy321/dsh-Agentlink/actions/workflows/ci.yml) [![GitHub Stars](https://img.shields.io/github/stars/hootandy321/dsh-Agentlink?style=flat-square&logo=github)](https://github.com/hootandy321/dsh-Agentlink/stargazers) [![License: MIT](https://img.shields.io/github/license/hootandy321/dsh-Agentlink?style=flat-square)](LICENSE) [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/) [![DSH plugin](https://img.shields.io/badge/DSH-plugin-4B6BFB?style=flat-square)](https://www.deepseek.com/harness/en/)
 
-**English** | [绠€浣撲腑鏂嘳(README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md)
 
-dsh-Agentlink is a plugin that lets you use DeepSeek Harness (DSH) from the AI work tool you already use. Your primary agent can delegate implementation, research, debugging, and long-log work to DSH, then observe, continue, or cancel those sessions without leaving its normal workflow. Codex is supported today; Claude Code, Workbuddy, and other popular AI coding and agent tools are planned.
-
-## Installation
-
-Prepare the environment first: you need **Node.js 22+**, **Codex**, and a working **DSH CLI**. Configure your preferred model in DSH once; dsh-Agentlink uses that live route automatically.
-
-### Install with your AI agent
-
-Send the following repository URL and prompt to Codex or another coding agent:
-
-```text
-Install dsh-Agentlink from https://github.com/hootandy321/dsh-Agentlink.
-Check Node.js 22+, the DSH CLI, and my DSH Web Host first. Clone it into a location I approve,
-run npm install and npm run setup -- --yes, then run npm test and npm run doctor.
-If dsh_agentlink or the legacy dsh_collab entry already exists, show me the conflict before using --replace.
-Do not start or stop dsh web for me. Tell me when I need to restart Codex.
-```
-
-### Manual installation
-
-1. Check the environment. DSH CLI `0.1.0-rc.6` is the current tested target.
-
-   ```bash
-   node --version
-   dsh --version
-   ```
-
-2. Start the official DSH Web Host in its own terminal.
-
-   ```bash
-   dsh web
-   ```
-
-3. Clone, install, and run the setup wizard.
-
-   ```bash
-   git clone https://github.com/hootandy321/dsh-Agentlink.git
-   cd dsh-Agentlink
-   npm install
-   npm run setup
-   ```
-
-   The wizard asks for the Host URL and DSH agent preset, backs up your Codex configuration, and installs the MCP entry with `approval_mode = "prompt"`. It does not start DSH or restart Codex.
-
-   For unattended defaults, use `npm run setup -- --yes`. To update an existing entry, review it first and then use `npm run setup -- --replace`. The setup command recognizes the legacy `dsh_collab` entry and migrates it to `dsh_agentlink` only after that explicit replacement approval.
-
-4. Restart Codex, then verify the connection.
-
-   ```bash
-   npm run doctor
-   ```
-
-Use `/mcp` or Codex Settings to confirm that `dsh_agentlink` is connected. The doctor also reports the bridge's fail-closed lock locations under `DSH_BRIDGE_HOME` read-only and never cleans them, so it is safe to run even when a lock is present. For a fully manual TOML setup and all environment variables, see [Manual Codex MCP configuration](docs/manual-configuration.md).
-
-This source patch stops new projection/chunk floods from expanding the coordination ledger, but it does not compact an existing 5 MB+ ledger. Preserve the old bridge home for inspection; new delegations can use a separate `DSH_BRIDGE_HOME`. DSH `session.history`, not the bridge ledger, remains the conversation source of truth. See [Known issues](KNOWN_ISSUES.md) for the conservative recovery boundary.
-
-dsh-Agentlink is a caller-side plugin, not a DSH Cordis bundle. Do not install it with `dsh plugin --profile ... add ...`.
-
-## Why dsh-Agentlink?
-
-### Use DSH's Harness capabilities
-
-DSH combines persistent sessions, tool execution, subagents, and human supervision for complex work. dsh-Agentlink lets Codex discuss and coordinate with that second harness while you stay in the same workflow.
-
-![Codex coordinating work with DeepSeek Harness](assets/codex-dsh-collaboration.webp)
-
-*Codex keeps planning and supervision; DSH provides the execution harness, sessions, and workers.*
-
-### More than another native subagent
-
-A native subagent remains inside the caller's own agent tree. dsh-Agentlink adds a separate, user-configured harness: its sessions stay visible in DSH Web, can use DSH's own workers and model route, and can be observed, continued, or canceled by Codex.
-
-![dsh-Agentlink compared with native subagents](assets/dsh-vs-native-subagents.webp)
-
-*Use the primary agent for judgment and validation, while DSH handles larger execution workloads through the model you configured there.*
-
-### Save time and cost
-
-- **Save time.** Route implementation, research, extraction, and long-log work to a fast model configured in DSH, such as a DeepSeek V4 route, while your primary agent keeps planning and validating.
-- **Save money.** Moving execution-heavy workloads to a lower-cost DeepSeek route can reduce consumption on more expensive primary models.
-
-Actual speed and cost depend on the selected model, provider, deployment, network, and task. Once installed, you can keep working in Codex as usual and simply ask it to delegate when DSH is the better execution path.
-
-## Use it
-
-Once `dsh web` is running and Codex has reloaded the MCP configuration, ask Codex in normal language, for example:
-
-> Use dsh-Agentlink to delegate this implementation to DSH in the current repository. Keep it visible in DSH Web, report progress, and ask me before any approval.
-
-Codex can then delegate the task, observe its event stream, continue the same session, answer questions with you, or cancel work. Open `http://127.0.0.1:3080` to inspect and interact with the same session in DSH Web.
-
-## MCP tools
-
-- `dsh_host_status` 鈥?connect-only Host state and capabilities
-- `dsh_delegate` 鈥?create a root session and queue the initial prompt; detached by default (`waitSeconds=0`)
-- `dsh_followup` 鈥?continue the same root session with explicit `mode="queue"|"steer"` (default `queue`)
-- `dsh_continue` 鈥?compatibility alias for `dsh_followup`
-- `dsh_status` 鈥?availability, execution, lineage, queue, pending interactions, final message, and cursors
-- `dsh_tail` 鈥?bounded event digests using a bridge task cursor
-- `dsh_wait` 鈥?wait up to 30 seconds for a durable event, state change, pending interaction, or terminal status
-- `dsh_observe` 鈥?compatibility alias around `dsh_wait`; bridge cursors replace raw session seq cursors
-- `dsh_cancel` 鈥?`scope="turn"|"queue"`
-- `dsh_list` 鈥?task mappings enriched with current derived status
-- `dsh_answer_question` 鈥?typed answer for a pending question rpcId
-- `dsh_resolve_approval` 鈥?typed `allow_once|reject` response for a pending approval rpcId
-- `dsh_release_workspace` 鈥?explicitly release a persistent bridge workspace claim without closing the DSH session
-
-Normal delegation has no model argument. Configure the desired model only when installing or adjusting DSH. Each delegate reads `session.models.current` and trusts the Host's `routable` boolean; it neither changes the model nor derives routability from catalog groups.
-
-`dsh_wait` observes durable bridge state. Assistant delta/chunk frames and top-level `session/projection` snapshots are skipped, so they do not bump the task revision or wake waiters; complete final messages remain observable through status/tail after the turn ends.
-
-## Roadmap
-
-These are planned directions, not implemented capabilities or release commitments.
-
-1. **Claude and other entrypoints** 鈥?explore Claude Code, Claude Desktop MCP, Workbuddy, and other callers connected to the same official DSH Web Host.
-2. **Agent invocation and information transport** 鈥?improve prompt organization, context packaging, output digests, and compression while keeping questions, approvals, errors, and final answers reliable.
-3. **More integrations** 鈥?expand after the Codex bridge and its compatibility contract stabilize.
-
-## More documentation
-
-- [Architecture and safety model](docs/architecture.md) 鈥?identity, state, recovery, approvals, cancellation, and workspace coordination
-- [Validation guide](docs/validation.md) 鈥?compatibility and operator acceptance checks
-- [Known issues](KNOWN_ISSUES.md) 鈥?current upgrade and concurrency caveats
-- [Contributing](CONTRIBUTING.md) and [security](SECURITY.md)
-
-## License
-
-[MIT](LICENSE)
-
-Alpha note: DSH is still in developer preview and this community project is independent of DeepSeek and OpenAI. `0.1.0-alpha.1` contains a shared-ledger concurrency bug; the fix is in source and pending release. Read [Known issues](KNOWN_ISSUES.md) before upgrading or running concurrent bridge processes.
-
----
-
-## ZCode Adaptation (Second Development)
-
-> **This repository is a second development fork of [hootandy321/dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink).**
+> **Important: This repository is a second-development fork of [hootandy321/dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink).**
 > The original targets Codex; this fork adds **ZCode** plugin support on top of all original functionality.
 >
-> The `main` branch stays in sync with upstream automatically.
+> The `main` branch stays in sync with upstream automatically. When the upstream author pushes updates, they are merged in automatically via GitHub Actions.
 
-### What we added
+dsh-Agentlink is a **connect-only MCP bridge** that lets AI coding tools (like ZCode) delegate implementation tasks to a locally running **DeepSeek Harness (DSH) Web Host**, then observe, continue, approve, or cancel those sessions from the calling agent.
+
+## Relationship with the Original
+
+| Project | Link | Description |
+|---------|------|-------------|
+| Original (Codex) | https://github.com/hootandy321/dsh-Agentlink | Official upstream, maintained by original author |
+| **This fork (ZCode)** | https://github.com/yyz0313/dsh-Agentlink | This repository — ZCode plugin + auto-sync |
+
+Both branches are maintained in parallel with full compatibility. Our commits only touch ZCode adaptation and functional enhancements (e.g., `sessionId` parameter), without modifying upstream logic.
+
+## What We Added (Beyond the Original)
 
 | Path | Description |
 |------|-------------|
-| `.zcode-plugin/plugin.json` | ZCode plugin manifest with MCP server config, configurable Host URL and agent preset |
-| `skills/dsh-collab/SKILL.md` | ZCode-specific collaboration skill with full tool reference, workflow, and safety rules |
+| `.zcode-plugin/plugin.json` | ZCode plugin manifest — MCP server config, user-configurable DSH Host URL and agent preset |
+| `skills/dsh-collab/SKILL.md` | ZCode collaboration skill — full tool reference, workflow, and safety rules |
 | `scripts/install.ps1` | One-click ZCode MCP registration script with environment detection |
-| `.github/workflows/sync-upstream.yml` | Auto-sync GitHub Action (checks upstream every 6 hours) |
+| `.github/workflows/sync-upstream.yml` | Auto-sync GitHub Action — checks upstream every 6 hours |
+| `src/bridge-service.ts` | New `sessionId` parameter to reuse existing DSH sessions |
 
-### Auto-sync mechanism
+## Auto-Sync Mechanism
 
 A GitHub Action runs every 6 hours:
 - Checks if `hootandy321/dsh-Agentlink` has new commits
@@ -171,13 +47,162 @@ git merge upstream/main --no-edit
 npm run build
 ```
 
-### Relationship with upstream
+## Features
 
-| Project | Link |
-|---------|------|
-| Original (Codex) | https://github.com/hootandy321/dsh-Agentlink |
-| **This fork (ZCode)** | https://github.com/yyz0313/dsh-Agentlink |
+- **Connect-only, no process management** — you run DSH Web Host; the bridge just communicates
+- **Persistent sessions** — DSH sessions remain visible and controllable in DSH Web after the bridge disconnects
+- **Sandbox isolation** — DSH Code Mode provides full filesystem sandbox; the bridge cannot bypass it
+- **Human approval required** — every write operation must be manually approved via `dsh_resolve_approval`
+- **Multi-turn collaboration** — use `dsh_followup` to append tasks, `dsh_cancel` to selectively stop
+- **Session reuse** — `dsh_delegate` accepts an optional `sessionId` to continue an existing DSH conversation (new in this fork)
 
-Both branches are maintained in parallel with full compatibility. Our commits only touch ZCode adaptation and functional enhancements (e.g., `sessionId` parameter), without modifying upstream logic.
+## Installation
 
+### Prerequisites
 
+- Node.js 22+
+- ZCode CLI (latest)
+- DSH Web Host running in the background (default port 3080)
+
+### Option 1: Auto-install (Recommended)
+
+Run the install script in the project directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```
+
+The script auto-detects Node.js, DSH Host, compiles the bridge, and writes the ZCode config.
+
+### Option 2: Manual Install
+
+```powershell
+# 1. Ensure DSH Web Host is running (in another terminal):
+#    dsh web --profile web --port 3080
+
+# 2. Install dependencies and build
+npm install
+npm run build
+
+# 3. Add the MCP config to ~/.zcode/cli/config.json
+#    (or just double-click scripts/install.ps1)
+```
+
+### ZCode Configuration
+
+Add to `~/.zcode/cli/config.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "dsh_agentlink": {
+        "command": "C:\\Users\\you\\.workbuddy\\binaries\\node\\versions\\22.22.2\\node.exe",
+        "args": ["C:\\Users\\you\\.zcode\\workspace\\default\\dsh-Agentlink\\dist\\index.js"],
+        "cwd": "${ZCODE_PROJECT_DIR}",
+        "env": {
+          "DSH_HOST_URL": "http://127.0.0.1:3080",
+          "DSH_BRIDGE_AGENT_PRESET": "code"
+        }
+      }
+    }
+  }
+}
+```
+
+### Verify Installation
+
+```powershell
+# Check bridge connection status
+node dist/doctor.js
+
+# Should output: {"ok": true, "compatibility": "compatible-untested", ...}
+```
+
+## Usage
+
+In ZCode, MCP tools are exposed as `mcp__dsh_agentlink__<tool_name>`. Common workflow:
+
+### 1. Check Host Status
+
+```
+mcp__dsh_agentlink__dsh_host_status
+```
+
+### 2. Delegate a Task
+
+```
+mcp__dsh_agentlink__dsh_delegate
+Parameters:
+  prompt: "Implement a user login module with JWT auth"
+  cwd: "/path/to/your/project"
+  workspaceMode: "exclusive-write"  # or "read-only"
+  sessionId: "optional - reuse existing session ID"
+```
+
+Note the returned `taskId` and `rootSessionId`.
+
+### 3. Wait and Monitor
+
+```
+mcp__dsh_agentlink__dsh_wait  # wait up to 30 seconds
+mcp__dsh_agentlink__dsh_tail  # read latest progress (with cursor)
+```
+
+### 4. Follow Up
+
+```
+mcp__dsh_agentlink__dsh_followup
+Parameters:
+  taskId: "xxx"
+  mode: "queue"        # append after current turn finishes
+  # or
+  mode: "steer"        # inject guidance into the active turn
+  content: "Handle edge cases carefully"
+```
+
+### 5. Answer Questions / Approve Writes
+
+When DSH needs approval, get `pendingInteractions` from `dsh_status` or `dsh_tail`:
+
+```
+mcp__dsh_agentlink__dsh_answer_question
+Parameters: taskId, requestId, answers
+
+mcp__dsh_agentlink__dsh_resolve_approval
+Parameters: taskId, requestId, outcome: "allow_once" | "reject"
+```
+
+**Security rule: the bridge never auto-approves. Every write must be manually confirmed by you.**
+
+### 6. Cancel / Release Workspace
+
+```
+mcp__dsh_agentlink__dsh_cancel(scope="turn")    # cancel only active turn, keep queue
+mcp__dsh_agentlink__dsh_cancel(scope="queue")   # cancel entire queue
+mcp__dsh_agentlink__dsh_release_workspace       # release workspace lock (does not close DSH session)
+```
+
+## ZCode Skill
+
+This repo provides a ZCode-specific skill with the full usage guide:
+
+```
+skills/dsh-collab/SKILL.md    # ZCode collaboration skill (tool names, workflow, safety rules)
+```
+
+Use `/dsh-collab` in ZCode to load the skill.
+
+## Known Limitations
+
+- **Does not auto-start DSH Host** — you must run `dsh web` yourself
+- **Host restart loses state** — active turns, pending interactions, and queue are lost
+- **At-least-once delivery** — not exactly-once; deduplication is deterministic per-session
+- **Connect-only** — the bridge does not manage Host process lifecycle
+- **Approvals are never auto-granted** — this is a security design, not a bug
+
+## License
+
+This project is open-sourced under the [MIT License](LICENSE), same as upstream.
+
+Alpha note: DSH is still in developer preview and this community project is independent of DeepSeek and OpenAI. Read [Known issues](KNOWN_ISSUES.md) before upgrading or running concurrent bridge processes.
