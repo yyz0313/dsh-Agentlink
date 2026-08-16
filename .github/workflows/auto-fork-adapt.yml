@@ -1,0 +1,289 @@
+name: Auto Fork & Adapt PR
+
+on:
+  # 手动触发：全流程自动
+  workflow_dispatch:
+    inputs:
+      upstream_repo:
+        description: '上游仓库 (owner/repo)'
+        required: true
+        default: 'hootandy321/dsh-Agentlink'
+      target_branch:
+        description: '适配分支名称'
+        required: true
+        default: 'zcode-adaptation'
+      version:
+        description: '版本号'
+        required: false
+        default: '0.1.0'
+      
+  # 定时检查 PR 合并状态
+  schedule:
+    - cron: '0 */6 * * *'
+  
+  # PR 合并后自动触发
+  workflow_call:
+    inputs:
+      upstream_repo:
+        description: '上游仓库'
+        required: true
+
+env:
+  # 必须在仓库 Settings → Secrets 添加 PAT_TOKEN
+  # PAT 权限需要: public_repo, repo
+  # (如果 fork 私有仓库，需要完整的 repo 权限)
+
+jobs:
+  auto-fork:
+    runs-on: ubuntu-latest
+    outputs:
+      fork_repo: ${{ steps.check.outputs.fork_repo }}
+      fork_exists: ${{ steps.check.outputs.fork_exists }}
+    steps:
+      - name: Check or create fork
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstreamRepo = '${{ github.event.inputs.upstream_repo }}';
+            const token = process.env.PAT_TOKEN;
+            const [upstreamOwner, upstreamName] = upstreamRepo.split('/');
+            const myOwner = context.repo.owner;
+            
+            const headers = { Authorization: `token ${token}` };
+            
+            // 检查是否已有 fork
+            try {
+              const { data: fork } = await fetch(
+                `https://api.github.com/repos/${myOwner}/${upstreamName}`,
+                { headers }
+              ).then(r => r.json());
+              
+              console.log(`Fork 已存在: ${fork.html_url}`);
+              core.setOutput('fork_repo', `${myOwner}/${upstreamName}`);
+              core.setOutput('fork_exists', 'true');
+            } catch (error) {
+              // 创建 fork
+              console.log('创建新 fork...');
+              const response = await fetch(
+                `https://api.github.com/repos/forks`,
+                {
+                  method: 'POST',
+                  headers: { ...headers, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    owner: upstreamOwner,
+                    repo: upstreamName,
+                    organization: undefined
+                  })
+                }
+              );
+              
+              if (response.ok) {
+                const fork = await response.json();
+                console.log(`Fork 创建成功: ${fork.html_url}`);
+                core.setOutput('fork_repo', `${myOwner}/${upstreamName}`);
+                core.setOutput('fork_exists', 'true');
+              } else {
+                const err = await response.text();
+                core.setFailed(`创建 fork 失败: ${err}`);
+                core.setOutput('fork_exists', 'false');
+              }
+            }
+
+  adapt-and-create-pr:
+    needs: auto-fork
+    if: needs.auto-fork.outputs.fork_exists == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.pr.outputs.number }}
+      pr_url: ${{ steps.pr.outputs.url }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.auto-fork.outputs.fork_repo }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 如果 fork 私有，改为使用 PAT_TOKEN:
+          # token: ${{ secrets.PAT_TOKEN }}
+          branch: main
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/${{ github.event.inputs.upstream_repo }}.git
+          git fetch upstream main
+
+      - name: Check if already adapted
+        id: check
+        run: |
+          if [ -f ".zcode-plugin/plugin.json" ]; then
+            echo "already_adapted=true" >> $GITHUB_OUTPUT
+          else
+            echo "already_adapted=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Apply adaptations
+        if: steps.check.outputs.already_adapted == 'false'
+        run: |
+          echo "🎯 开始 ZCode 适配..."
+          
+          # 1. 创建 ZCode 插件目录和配置
+          mkdir -p .zcode-plugin
+          cat > .zcode-plugin/plugin.json << 'EOF'
+          {
+            "name": "dsh-agentlink",
+            "description": "DSH MCP bridge with ZCode support",
+            "version": "${{ github.event.inputs.version }}",
+            "mcp": {
+              "servers": {
+                "dsh_agentlink": {
+                  "command": "node",
+                  "args": ["${pluginDir}/dist/index.js"],
+                  "cwd": "${ZCODE_PROJECT_DIR}",
+                  "env": {
+                    "DSH_HOST_URL": "http://127.0.0.1:3080",
+                    "DSH_BRIDGE_AGENT_PRESET": "code"
+                  }
+                }
+              }
+            },
+            "skills": ["dsh-collab"]
+          }
+          EOF
+          
+          # 2. 创建协作技能文件
+          mkdir -p skills/dsh-collab
+          cat > skills/dsh-collab/SKILL.md << 'SKILL_EOF'
+          # dsh-collab Skill
+
+          ## 简介
+          dsh-collab 是 ZCode 专用的 DSH 协作技能，支持在 ZCode 中调用 DSH 会话。
+
+          ## 工具列表
+          - `mcp__dsh_agentlink__dsh_delegate` —— 委派任务给 DSH
+          - `mcp__dsh_agentlink__dsh_wait` —— 等待 DSH 完成
+          - `mcp__dsh_agentlink__dsh_tail` —— 查看进度
+          - `mcp__dsh_agentlink__dsh_cancel` —— 取消任务
+
+          ## 使用示例
+          ```
+          使用 mcp__dsh_agentlink__dsh_delegate 将这个实现委派给 DSH
+          ```
+          SKILL_EOF
+          
+          # 3. 创建安装脚本
+          mkdir -p scripts
+          cat > scripts/install.ps1 << 'SCRIPT_EOF'
+          # ZCode 一键安装脚本
+          Write-Host "正在安装 dsh-agentlink ZCode 插件..."
+          # ... 安装逻辑
+          SCRIPT_EOF
+          
+          # 4. 更新 README
+          if [ -f "README.md" ]; then
+            echo "" >> README.md
+            cat >> README.md << 'README_EOF'
+
+          ---
+          
+          ## ZCode 适配
+
+          作者原项目: https://github.com/${{ github.event.inputs.upstream_repo }}
+
+          本仓库为 ZCode 适配版，已集成：
+          - ZCode 插件配置
+          - 协作技能
+          - 自动同步机制
+          README_EOF
+          fi
+          
+          git add -A
+          git commit -m "feat: ZCode adaptation v${{ github.event.inputs.version }}" || echo "无变更需要提交"
+          git push origin main
+
+      - name: 创建 Pull Request
+        id: pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fork: ${{ needs.auto-fork.outputs.fork_repo }}
+          branch: ${{ github.event.inputs.target_branch }}
+          title: 'ZCode adaptation'
+          body: |
+            ## ZCode 适配
+            
+            为项目添加 ZCode 插件支持，使其可在 ZCode 环境中使用。
+            
+            ### 变更
+            - `.zcode-plugin/plugin.json` — ZCode 插件配置
+            - `skills/dsh-collab/SKILL.md` — 协作技能
+            - `scripts/install.ps1` — 安装脚本
+            - `README.md` — 添加适配说明
+            
+            ### 后续
+            如果您接受，请合并此 PR。合并后，我的 fork 将自动同步上游更新。
+            
+            **如果不接受**，请关闭此 PR，我会在 fork 中继续维护。
+          labels: |
+            zcode
+            enhancement
+          draft: false
+
+  check-pr-status:
+    needs: adapt-and-create-pr
+    if: always() && needs.adapt-and-create-pr.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for PR merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ needs.adapt-and-create-pr.outputs.pr_number }};
+            const [owner, repo] = '${{ github.event.inputs.upstream_repo }}'.split('/');
+            
+            // 等待合并
+            for (let i = 0; i < 60; i++) {  // 最多等 30 分钟
+              await new Promise(r => setTimeout(r, 30000));
+              
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              console.log(`PR 状态检查 ${i+1}/60: ${pr.state}, merged: ${pr.merged}`);
+              
+              if (pr.merged) {
+                console.log(`PR 已合并!`);
+                core.setOutput('merged', 'true');
+                process.exit(0);
+              }
+            }
+            
+            console.log('等待 PR 合并中...（继续在下一次调度）');
+            core.setOutput('merged', 'false');
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sync-to-fork:
+    needs: [auto-fork, check-pr-status]
+    if: needs.check-pr-status.outputs.merged == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout my fork
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch and merge upstream
+        run: |
+          git fetch origin main
+          git merge origin/main --no-ff -m "chore: sync upstream main"
+          git push origin main
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: 'v${{ github.event.inputs.version }}'
+          name: 'ZCode v${{ github.event.inputs.version }}'
+          body: |
+            ## ZCode 适配 ${ { { github.event.inputs.version }}}.
+            
+            添加 ZCode 插件支持，自动同步上游机制。
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
