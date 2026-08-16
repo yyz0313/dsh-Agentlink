@@ -1,0 +1,83 @@
+name: Create GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (e.g., 0.1.0-alpha.1)'
+        required: true
+        default: '0.1.0-alpha.1'
+      changelog:
+        description: '变更日志（可选）'
+        required: false
+
+permissions:
+  contents: write
+  id-token: write
+  tags: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          TAG="${{ steps.version.outputs.tag}}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag}}" -m "ZCode Adaptations v${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.tag}}"
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          CHANGELOG="${{ github.event.inputs.changelog }}"
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="## ZCode 适配更新
+
+### 新增特性
+- ZCode 插件支持 (.zcode-plugin/plugin.json)
+- ZCode 专用协作技能 (skills/dsh-collab/SKILL.md)
+- 一键安装脚本 (scripts/install.ps1)
+- 自动同步上游机制 (.github/workflows/sync-upstream.yml)
+- sessionId 参数支持会话复用
+
+### 在 README.md 和 README.zh-CN.md 中，Codex相关内容均指向原作者仓库"
+          fi
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ steps.version.outputs.tag}}"
+          name: "ZCode Adaptations v ${{ steps.version.outputs.version}}"
+          body: ${{ steps.notes.outputs.body }}
+          draft: false
+          prerelease: ${{ contains(github.event.inputs.version, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

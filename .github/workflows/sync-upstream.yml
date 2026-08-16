@@ -8,7 +8,9 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # 用于 OIDC 身份验证（GitHub Release）
   pull-requests: read
+  tags: write      # 用于创建 tag（Release 必需）
 
 jobs:
   sync-upstream:
