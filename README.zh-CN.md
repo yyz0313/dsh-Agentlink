@@ -240,3 +240,34 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 [MIT](LICENSE)
 
 Alpha 说明：DSH 仍处于 developer preview，本项目是独立社区项目，不代表 DeepSeek 或 OpenAI 官方背书。`0.1.0-alpha.1` 包含一个共享账本并发问题；修复已进入源码、尚待发布。升级或并发运行 bridge 前请阅读[已知问题](KNOWN_ISSUES.md)。
+
+---
+
+## ZCode 适配说明
+
+> **注意**：本仓库是 [hootandy321/dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) 的二次开发版本。
+> 原项目面向 Codex，本仓库添加了 ZCode 插件支持。
+
+### 新增内容
+
+| 路径 | 说明 |
+|------|------|
+| `.zcode-plugin/plugin.json` | ZCode 插件 manifest，含 MCP 服务器配置 |
+| `skills/dsh-collab/SKILL.md` | ZCode 专用协作技能 |
+| `scripts/install.ps1` | ZCode 一键安装脚本 |
+| `.github/workflows/sync-upstream.yml` | 自动同步上游机制 |
+| `.github/workflows/auto-fork-adapt.yml` | 全自动 fork → PR → 同步工作流 |
+
+### 自动同步机制
+
+本仓库配置了 GitHub Action，每 6 小时自动检查并合并上游更新：
+```bash
+# 手动同步
+git fetch upstream main
+git merge upstream/main --no-edit
+npm run build
+```
+
+### 使用 ZCode
+
+请参考 [QUICK_START.ps1](QUICK_START.ps1) 或进入 Actions 页面运行工作流程。
